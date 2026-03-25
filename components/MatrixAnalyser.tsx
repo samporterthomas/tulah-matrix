@@ -421,10 +421,15 @@ export default function MatrixAnalyser() {
   useEffect(() => {
     const session = sessions.find((s) => s.id === activeId);
     if (session) {
-      // Clear any stuck streaming state from interrupted sessions
-      const cleanMessages = session.messages.map((m) =>
-        m.isStreaming ? { ...m, isStreaming: false, content: m.content || "(Response interrupted — please retry)" } : m
-      );
+      // Only clean up stuck streaming states on sessions that have saved content
+      // (i.e. were interrupted mid-stream on a previous page load)
+      const cleanMessages = session.messages.map((m) => {
+        if (m.isStreaming && !isLoading) {
+          // Only mark as interrupted if there's no content (truly stuck blank state)
+          return { ...m, isStreaming: false, content: m.content || "(Response interrupted — please retry)" };
+        }
+        return m;
+      });
       setMessages(cleanMessages);
       setChatTitle(session.messages.length > 0 && session.title !== "New conversation"
         ? session.title
@@ -432,7 +437,7 @@ export default function MatrixAnalyser() {
     } else {
       setChatTitle("New chat");
     }
-  }, [activeId, sessions]);
+  }, [activeId]); // Only run when active session changes, not on every messages update
 
   // ── Persist messages to localStorage whenever they change ────────────────
   useEffect(() => {
