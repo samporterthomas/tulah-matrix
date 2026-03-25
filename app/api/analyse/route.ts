@@ -1,57 +1,84 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "@/lib/systemPrompt";
-import type { AnalyseRequest } from "@/lib/types";
+import path from "path";
+import fs from "fs";
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+export const maxDuration = 60;
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Load and cache matrix data at module level
+let cachedMatrix: string | null = null;
+function getMatrix(): string {
+  if (!cachedMatrix) {
+    const p = path.join(process.cwd(), "public", "matrix-data.json");
+    cachedMatrix = fs.readFileSync(p, "utf-8");
+  }
+  return cachedMatrix;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const body: AnalyseRequest = await req.json();
-    const { question, matrixData, history } = body;
-
+    const { question, history } = await req.json();
     if (!question?.trim()) {
-      return NextResponse.json({ error: "Question is required." }, { status: 400 });
-    }
-    if (!matrixData?.records?.length) {
-      return NextResponse.json(
-        { error: "No matrix data provided. Please upload a matrix file first." },
-        { status: 400 }
-      );
+      return new Response(JSON.stringify({ error: "Question is required." }), { status: 400 });
     }
 
-    const systemPrompt = buildSystemPrompt(matrixData);
+    const matrixJson = getMatrix();
+    const systemPrompt = buildSystemPrompt(matrixJson);
+    const recentHistory = (history || []).slice(-6);
 
-    // Build message history — include up to last 10 turns to stay within context
-    const recentHistory = history.slice(-10);
     const messages: Anthropic.MessageParam[] = [
-      ...recentHistory.map((m) => ({
+      ...recentHistory.map((m: { role: string; content: string }) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
       })),
       { role: "user", content: question },
     ];
 
-    const response = await client.messages.create({
+    // Use streaming to avoid Vercel timeout on large prompts
+    const stream = client.messages.stream({
       model: "claude-sonnet-4-6",
-      max_tokens: 2048,
+      max_tokens: 1500,
       system: systemPrompt,
       messages,
     });
 
-    const answer =
-      response.content
-        .filter((block) => block.type === "text")
-        .map((block) => (block as { type: "text"; text: string }).text)
-        .join("\n") || "No response generated.";
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            if (
+              chunk.type === "content_block_delta" &&
+              chunk.delta.type === "text_delta"
+            ) {
+              controller.enqueue(
+                encoder.encode(chunk.delta.text)
+              );
+            }
+          }
+          controller.close();
+        } catch (err) {
+          controller.error(err);
+        }
+      },
+    });
 
-    return NextResponse.json({ answer });
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
   } catch (err: unknown) {
     console.error("Analyse API error:", err);
-    const message =
-      err instanceof Error ? err.message : "An unexpected error occurred.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "An unexpected error occurred.";
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }

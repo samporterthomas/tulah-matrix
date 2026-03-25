@@ -513,7 +513,7 @@ export default function MatrixAnalyser() {
 
   // ── Submit question ──────────────────────────────────────────────────────
   const submitQuestion = useCallback(async (q: string) => {
-    if (!q.trim() || isLoading || !matrix) return;
+    if (!q.trim() || isLoading || !ready) return;
 
     // If no active session, create one now
     const sessionId = activeId ?? newSession();
@@ -544,14 +544,38 @@ export default function MatrixAnalyser() {
       const res = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: finalQuestion, matrixData: matrix, history }),
+        body: JSON.stringify({ question: finalQuestion, history }),
       });
-      const data = await res.json();
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Request failed." }));
+        throw new Error(errData.error || "Request failed.");
+      }
+
+      // Stream the response text chunk by chunk
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullAnswer = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          fullAnswer += chunk;
+          // Update the streaming message with accumulated text
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.isStreaming ? { ...m, content: fullAnswer } : m
+            )
+          );
+        }
+      }
 
       setMessages((prev) => {
         const updated = prev.map((m) =>
           m.isStreaming
-            ? { ...m, content: data.error ? `Error: ${data.error}` : data.answer || "No response.", isStreaming: false }
+            ? { ...m, content: fullAnswer || "No response.", isStreaming: false }
             : m
         );
         updateMessages(sessionId, updated);
