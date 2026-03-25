@@ -421,8 +421,11 @@ export default function MatrixAnalyser() {
   useEffect(() => {
     const session = sessions.find((s) => s.id === activeId);
     if (session) {
-      setMessages(session.messages);
-      // Show session title if it has messages, otherwise default
+      // Clear any stuck streaming state from interrupted sessions
+      const cleanMessages = session.messages.map((m) =>
+        m.isStreaming ? { ...m, isStreaming: false, content: m.content || "(Response interrupted — please retry)" } : m
+      );
+      setMessages(cleanMessages);
       setChatTitle(session.messages.length > 0 && session.title !== "New conversation"
         ? session.title
         : "New chat");
@@ -552,26 +555,36 @@ export default function MatrixAnalyser() {
         throw new Error(errData.error || "Request failed.");
       }
 
-      // Stream the response text chunk by chunk
+      // Stream the response, batching UI updates to avoid flicker
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let fullAnswer = "";
+      let pendingUpdate = "";
+      let rafId: ReturnType<typeof setTimeout> | null = null;
+
+      const flush = () => {
+        const snapshot = fullAnswer;
+        setMessages((prev) =>
+          prev.map((m) => (m.isStreaming ? { ...m, content: snapshot } : m))
+        );
+        rafId = null;
+      };
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          fullAnswer += chunk;
-          // Update the streaming message with accumulated text
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.isStreaming ? { ...m, content: fullAnswer } : m
-            )
-          );
+          pendingUpdate = decoder.decode(value, { stream: true });
+          fullAnswer += pendingUpdate;
+          // Throttle: only update UI every ~100ms
+          if (!rafId) {
+            rafId = setTimeout(flush, 100);
+          }
         }
+        if (rafId) { clearTimeout(rafId); }
       }
 
+      // Final update — mark streaming complete
       setMessages((prev) => {
         const updated = prev.map((m) =>
           m.isStreaming
@@ -598,11 +611,12 @@ export default function MatrixAnalyser() {
           })
           .catch(() => {});
       }
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? `Error: ${err.message}` : "Request failed. Please check your connection and try again.";
       setMessages((prev) => {
         const updated = prev.map((m) =>
           m.isStreaming
-            ? { ...m, content: "Request failed. Please check your connection and try again.", isStreaming: false }
+            ? { ...m, content: msg, isStreaming: false }
             : m
         );
         updateMessages(sessionId, updated);
