@@ -379,6 +379,7 @@ function HistoryPanel({
 
 export default function MatrixAnalyser() {
   const [matrix, setMatrix] = useState<ParsedMatrix | null>(null);
+  const [optimisedMatrixJson, setOptimisedMatrixJson] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -406,8 +407,13 @@ export default function MatrixAnalyser() {
   useEffect(() => {
     async function loadDefault() {
       try {
+        // Load display matrix (for UI/comparator count)
         const parsed = await parseMatrixUrl(DEFAULT_MATRIX_URL);
         setMatrix(parsed);
+        // Load pre-optimised matrix JSON for API calls (fits within rate limits)
+        const res = await fetch("/matrix-data.json");
+        const json = await res.text();
+        setOptimisedMatrixJson(json);
       } catch (err) {
         console.warn("Could not auto-load default matrix:", err);
       } finally {
@@ -558,7 +564,7 @@ export default function MatrixAnalyser() {
       const res = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: finalQuestion, matrixJson: matrix ? JSON.stringify(matrix.records) : "[]", history }),
+        body: JSON.stringify({ question: finalQuestion, matrixJson: optimisedMatrixJson || (matrix ? JSON.stringify(matrix.records) : "[]"), history }),
       });
 
       if (!res.ok) {
