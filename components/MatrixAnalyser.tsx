@@ -784,17 +784,20 @@ export default function MatrixAnalyser() {
 
           <div className="flex items-center gap-2">
             {!sidebarOpen && <StatusBadge matrix={matrix} loading={isInitialising} />}
-            {/* Open matrix in Google Sheets */}
+            {/* Download matrix as Excel */}
             <a
-              href={SHEETS_DIRECT_URL}
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/Tulah_Comparator_Matrix.xlsx"
+              download="Tulah_Comparator_Matrix.xlsx"
               className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-stone-100 border border-stone-200 hover:border-stone-300 transition-colors"
-              title="Open matrix in Google Sheets"
+              title="Download matrix as Excel"
             >
-              {/* Google Sheets logo */}
-              <img src="/sheets-icon.png" className="w-3.5 h-3.5" alt="Google Sheets" />
-              Open matrix
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z" fill="#217346"/>
+                <path d="M14 2V8H20L14 2Z" fill="#185C37"/>
+                <path d="M8 12.5L10.5 17H13.5L11 12.5L13.5 8H10.5L8 12.5Z" fill="white"/>
+                <path d="M13 8H15.5L13.5 12.5L15.5 17H13L11 12.5L13 8Z" fill="white"/>
+              </svg>
+              Download matrix
             </a>
             <button
               onClick={handleNewChat}
