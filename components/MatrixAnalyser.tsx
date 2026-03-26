@@ -406,19 +406,23 @@ export default function MatrixAnalyser() {
   // ── Auto-load default matrix ─────────────────────────────────────────────
   useEffect(() => {
     async function loadDefault() {
+      // Load display matrix (for UI/comparator count)
       try {
-        // Load display matrix (for UI/comparator count)
         const parsed = await parseMatrixUrl(DEFAULT_MATRIX_URL);
         setMatrix(parsed);
-        // Load pre-optimised matrix JSON for API calls (fits within rate limits)
+      } catch (err) {
+        console.warn("Could not auto-load display matrix:", err);
+      }
+      // Load pre-optimised matrix JSON separately (never blocks ready state)
+      try {
         const res = await fetch("/matrix-data.json");
         const json = await res.text();
         setOptimisedMatrixJson(json);
       } catch (err) {
-        console.warn("Could not auto-load default matrix:", err);
-      } finally {
-        setIsInitialising(false);
+        console.warn("Could not load optimised matrix JSON:", err);
       }
+      // Always unblock the UI regardless of what failed
+      setIsInitialising(false);
     }
     loadDefault();
   }, []);
