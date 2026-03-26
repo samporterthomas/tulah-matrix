@@ -1,21 +1,11 @@
 import * as XLSX from "xlsx";
 import type { ParsedMatrix, MatrixRecord } from "./types";
 
-/**
- * Parses an XLSX ArrayBuffer into a structured ParsedMatrix.
- *
- * Sheet priority: "Comparator Matrix" → "Benchmark Matrix" → first sheet
- * Row layout: Row 0 = section header (skipped), Row 1 = column headers, Rows 2+ = data
- *
- * Section-label rows (non-data rows whose col 0 is a group label like
- * "Mothership-led", "Urban Hub-led", "Embedded (No Mothership)", etc.) are filtered out.
- */
 function parseBuffer(buffer: ArrayBuffer, fileName: string): ParsedMatrix {
   const workbook = XLSX.read(buffer, { type: "array" });
 
-  const PREFERRED_SHEETS = ["Comparator Matrix", "Benchmark Matrix"];
   const sheetName =
-    PREFERRED_SHEETS.find((n) => workbook.SheetNames.includes(n)) ??
+    workbook.SheetNames.find((n) => ["Comparator Matrix", "Benchmark Matrix"].includes(n)) ??
     workbook.SheetNames[0];
 
   const sheet = workbook.Sheets[sheetName];
@@ -25,26 +15,30 @@ function parseBuffer(buffer: ArrayBuffer, fileName: string): ParsedMatrix {
     raw: false,
   }) as (string | number | null)[][];
 
-  const rawHeaders = raw[1] ?? [];
+  // Find the header row — the row that contains "Brand / Expression"
+  let headerRowIndex = 1;
+  for (let i = 0; i < Math.min(5, raw.length); i++) {
+    if (raw[i]?.some((v) => String(v || "").includes("Brand"))) {
+      headerRowIndex = i;
+      break;
+    }
+  }
+
+  const rawHeaders = raw[headerRowIndex] ?? [];
   const headers: string[] = rawHeaders.map((h) =>
     h != null ? String(h).replace(/\n/g, " ").trim() : ""
   );
 
   const records: MatrixRecord[] = [];
 
-  for (let i = 2; i < raw.length; i++) {
+  for (let i = headerRowIndex + 1; i < raw.length; i++) {
     const row = raw[i];
     const brand = row?.[0];
-    const category = row?.[2]; // "Level / Category" column
+    const category = row?.[2];
 
-    // Skip blank rows
+    // Skip blank rows and section-label rows (no category value)
     if (brand == null || String(brand).trim() === "") continue;
-
-    // Skip section-label rows: they have no category value and are not data
     if (category == null || String(category).trim() === "") continue;
-
-    // Skip legacy section headers just in case
-    if (/^(LOCAL|SECTION)/i.test(String(brand).trim())) continue;
 
     const record: MatrixRecord = {};
     headers.forEach((header, colIdx) => {
@@ -72,9 +66,7 @@ export async function parseMatrixFile(file: File): Promise<ParsedMatrix> {
 
 export async function parseMatrixUrl(url: string): Promise<ParsedMatrix> {
   const res = await fetch(url);
-  if (!res.ok)
-    throw new Error(`Failed to load matrix: ${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(`Failed to load matrix: ${res.status}`);
   const buffer = await res.arrayBuffer();
-  const fileName = url.split("/").pop() ?? "matrix.xlsx";
-  return parseBuffer(buffer, fileName);
+  return parseBuffer(buffer, url.split("/").pop() ?? "matrix.xlsx");
 }
