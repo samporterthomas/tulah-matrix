@@ -5,9 +5,17 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { parseMatrixFile, parseMatrixUrl } from "@/lib/parseMatrix";
 import { useChatHistory } from "@/lib/useChatHistory";
+import MatrixPanel from "@/components/MatrixPanel";
 import type { ParsedMatrix, Message } from "@/lib/types";
 
+// ─── Constants ────────────────────────────────────────────────────────────
+
 const DEFAULT_MATRIX_URL = "/matrix.xlsx";
+
+// Google Sheets URLs — set NEXT_PUBLIC_SHEETS_EMBED_URL in your .env.local / Vercel env vars
+// See README for how to get the embed URL from Google Sheets
+const SHEETS_EMBED_URL = process.env.NEXT_PUBLIC_SHEETS_EMBED_URL ?? "YOUR_PUBLISHED_EMBED_URL_HERE";
+const SHEETS_DIRECT_URL = "https://docs.google.com/spreadsheets/d/1VHFzVEX5aW-4Ow_rLsHGk3YDZ19YYD5X1tCVI4UYDBs/edit?usp=sharing";
 
 const SUGGESTED_QUESTIONS = [
   {
@@ -45,6 +53,7 @@ const SUGGESTED_QUESTIONS = [
 ];
 
 const FILTERS = [
+  { label: "All comparators", value: "" },
   { label: "Motherships (A)", value: "A — Mothership" },
   { label: "Urban Hubs (B)", value: "B — Urban Hub" },
   { label: "Embedded (C)", value: "C — Embedded / Partner" },
@@ -52,21 +61,38 @@ const FILTERS = [
   { label: "Dubai / UAE", value: "Dubai" },
 ];
 
-// ── Sub-components ─────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+function formatRelativeDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────
 
 function StatusBadge({ matrix, loading }: { matrix: ParsedMatrix | null; loading: boolean }) {
-  if (loading) return (
-    <div className="flex items-center gap-1.5 text-xs text-stone-400">
-      <span className="w-1.5 h-1.5 rounded-full bg-amber-300 inline-block animate-pulse" />
-      Loading matrix…
-    </div>
-  );
-  if (!matrix) return (
-    <div className="flex items-center gap-1.5 text-xs text-stone-400">
-      <span className="w-1.5 h-1.5 rounded-full bg-stone-300 inline-block" />
-      No matrix loaded
-    </div>
-  );
+  if (loading) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-stone-400">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-300 inline-block animate-pulse" />
+        Loading matrix…
+      </div>
+    );
+  }
+  if (!matrix) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-stone-400">
+        <span className="w-1.5 h-1.5 rounded-full bg-stone-300 inline-block" />
+        No matrix loaded
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-1.5 text-xs text-stone-500">
       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
@@ -76,40 +102,70 @@ function StatusBadge({ matrix, loading }: { matrix: ParsedMatrix | null; loading
   );
 }
 
-function ReplaceDataPanel({ onFile, isLoading, parseError, matrix }: {
-  onFile: (f: File) => void; isLoading: boolean; parseError: string | null; matrix: ParsedMatrix | null;
+function ReplaceDataPanel({
+  onFile, isLoading, parseError, matrix,
+}: {
+  onFile: (f: File) => void;
+  isLoading: boolean;
+  parseError: string | null;
+  matrix: ParsedMatrix | null;
 }) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); setDragging(false);
-    const f = e.dataTransfer.files?.[0]; if (f) onFile(f);
+    e.preventDefault();
+    setDragging(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) onFile(f);
   }, [onFile]);
 
   return (
     <div className="border-b border-stone-100">
-      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-stone-50 transition-colors">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">Replace Matrix Data</span>
-        <svg className={`w-3 h-3 text-stone-300 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-stone-50 transition-colors"
+      >
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">
+          Replace Matrix Data
+        </span>
+        <svg className={`w-3 h-3 text-stone-300 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
       {open && (
         <div className="px-4 pb-4">
           <div
-            className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${dragging ? "border-stone-400 bg-stone-100" : "border-stone-200 hover:border-stone-300 bg-white"}`}
+            className={`relative border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
+              dragging ? "border-stone-400 bg-stone-100" : "border-stone-200 hover:border-stone-300 bg-white"
+            }`}
             onClick={() => inputRef.current?.click()}
-            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
           >
             <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }} disabled={isLoading} />
-            <p className="text-xs text-stone-400">{isLoading ? "Parsing…" : "Drop XLSX or click to browse"}</p>
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }}
+              disabled={isLoading} />
+            <div className="flex flex-col items-center gap-1.5">
+              <svg className="w-4 h-4 text-stone-300" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              <p className="text-xs text-stone-400">
+                {isLoading ? "Parsing…" : "Drop new XLSX or click to browse"}
+              </p>
+            </div>
           </div>
           {parseError && <p className="text-xs text-red-500 mt-1.5">{parseError}</p>}
-          {matrix && <p className="text-[10px] text-stone-400 mt-1.5">Current: <span className="font-medium">{matrix.rowCount - 2}</span> comparators</p>}
+          {matrix && (
+            <p className="text-[10px] text-stone-400 mt-1.5">
+              Current: <span className="font-medium">{matrix.rowCount - 2}</span> comparators · {matrix.headers.length} fields
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -117,13 +173,15 @@ function ReplaceDataPanel({ onFile, isLoading, parseError, matrix }: {
 }
 
 function MessageBubble({ message }: { message: Message }) {
-  if (message.role === "user") return (
-    <div className="flex justify-end">
-      <div className="max-w-[78%] bg-stone-900 text-stone-50 rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed">
-        {message.content}
+  if (message.role === "user") {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[78%] bg-stone-900 text-stone-50 rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed">
+          {message.content}
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
   return (
     <div className="flex gap-3">
       <div className="w-6 h-6 rounded-full bg-stone-100 border border-stone-200 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -135,7 +193,10 @@ function MessageBubble({ message }: { message: Message }) {
         {message.isStreaming ? (
           <div className="flex items-center gap-2 h-6">
             <span className="flex gap-1">
-              {[0,1,2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-stone-300 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
+              {[0, 1, 2].map((i) => (
+                <span key={i} className="w-1.5 h-1.5 rounded-full bg-stone-300 animate-bounce"
+                  style={{ animationDelay: `${i * 0.15}s` }} />
+              ))}
             </span>
             <span className="text-xs text-stone-400">Analysing matrix…</span>
           </div>
@@ -150,16 +211,11 @@ function MessageBubble({ message }: { message: Message }) {
   );
 }
 
-function formatRelativeDate(iso: string): string {
-  const d = new Date(iso), now = new Date();
-  const days = Math.floor((now.getTime() - d.getTime()) / 86400000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days} days ago`;
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
+// ─── History panel ────────────────────────────────────────────────────────
 
-function HistoryPanel({ sessions, activeId, onSelect, onDelete, onClearAll, onNew, onRename, ready }: {
+function HistoryPanel({
+  sessions, activeId, onSelect, onDelete, onClearAll, onNew, onRename, ready,
+}: {
   sessions: ReturnType<typeof useChatHistory>["sessions"];
   activeId: string | null;
   onSelect: (id: string) => void;
@@ -174,52 +230,109 @@ function HistoryPanel({ sessions, activeId, onSelect, onDelete, onClearAll, onNe
   const [editValue, setEditValue] = useState("");
   const editInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { if (editingId && editInputRef.current) { editInputRef.current.focus(); editInputRef.current.select(); } }, [editingId]);
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
 
-  const startEdit = (e: React.MouseEvent, id: string, title: string) => { e.stopPropagation(); setEditingId(id); setEditValue(title); };
-  const commitEdit = (id: string) => { if (editValue.trim()) onRename(id, editValue.trim()); setEditingId(null); };
+  const startEdit = (e: React.MouseEvent, id: string, currentTitle: string) => {
+    e.stopPropagation();
+    setEditingId(id);
+    setEditValue(currentTitle);
+  };
 
-  if (sessions.length === 0) return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-2 px-4 text-center">
-      <p className="text-xs text-stone-400 leading-relaxed">No saved chats yet. Start a conversation and it will appear here.</p>
-    </div>
-  );
+  const commitEdit = (id: string) => {
+    if (editValue.trim()) onRename(id, editValue.trim());
+    setEditingId(null);
+  };
+
+  if (sessions.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-2 px-4 text-center">
+        <svg className="w-6 h-6 text-stone-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+        </svg>
+        <p className="text-xs text-stone-400 leading-relaxed">
+          No saved chats yet. Start a conversation and it will appear here.
+        </p>
+      </div>
+    );
+  }
 
   const groups: Record<string, typeof sessions> = {};
-  sessions.forEach(s => { const l = formatRelativeDate(s.updatedAt); if (!groups[l]) groups[l] = []; groups[l].push(s); });
+  sessions.forEach((s) => {
+    const label = formatRelativeDate(s.updatedAt);
+    if (!groups[label]) groups[label] = [];
+    groups[label].push(s);
+  });
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {Object.entries(groups).map(([label, group]) => (
           <div key={label} className="mb-3">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-stone-300 px-2 py-1">{label}</p>
-            {group.map(session => (
-              <div key={session.id}
-                className={`group flex items-start gap-1 rounded-md px-2 py-2 cursor-pointer transition-colors ${activeId === session.id ? "bg-stone-100 text-stone-900" : "hover:bg-stone-50 text-stone-600"}`}
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-stone-300 px-2 py-1">
+              {label}
+            </p>
+            {group.map((session) => (
+              <div
+                key={session.id}
+                className={`group flex items-start gap-1 rounded-md px-2 py-2 cursor-pointer transition-colors ${
+                  activeId === session.id ? "bg-stone-100 text-stone-900" : "hover:bg-stone-50 text-stone-600"
+                }`}
                 onClick={() => editingId !== session.id && onSelect(session.id)}
               >
-                <svg className="w-3 h-3 text-stone-300 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.48.432.447.74 1.04.586 1.641a4.483 4.483 0 01-.923 1.785A5.969 5.969 0 006 21c1.282 0 2.47-.402 3.445-1.087.81.22 1.668.337 2.555.337z" />
+                <svg className="w-3 h-3 text-stone-300 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24"
+                  stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.48.432.447.74 1.04.586 1.641a4.483 4.483 0 01-.923 1.785A5.969 5.969 0 006 21c1.282 0 2.47-.402 3.445-1.087.81.22 1.668.337 2.555.337z" />
                 </svg>
                 <div className="flex-1 min-w-0">
                   {editingId === session.id ? (
-                    <input ref={editInputRef} value={editValue} onChange={e => setEditValue(e.target.value)}
+                    <input
+                      ref={editInputRef}
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
                       onBlur={() => commitEdit(session.id)}
-                      onKeyDown={e => { if (e.key === "Enter") commitEdit(session.id); if (e.key === "Escape") setEditingId(null); e.stopPropagation(); }}
-                      onClick={e => e.stopPropagation()}
-                      className="w-full text-[11.5px] bg-white border border-stone-300 rounded px-1.5 py-0.5 outline-none focus:border-stone-500 text-stone-800" />
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitEdit(session.id);
+                        if (e.key === "Escape") setEditingId(null);
+                        e.stopPropagation();
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full text-[11.5px] bg-white border border-stone-300 rounded px-1.5 py-0.5 outline-none focus:border-stone-500 text-stone-800"
+                    />
                   ) : (
                     <p className="text-[11.5px] leading-snug truncate">{session.title}</p>
                   )}
-                  <p className="text-[10px] text-stone-400 mt-0.5">{session.messages.filter(m => m.role === "user").length} question{session.messages.filter(m => m.role === "user").length !== 1 ? "s" : ""}</p>
+                  <p className="text-[10px] text-stone-400 mt-0.5">
+                    {session.messages.filter((m) => m.role === "user").length} question
+                    {session.messages.filter((m) => m.role === "user").length !== 1 ? "s" : ""}
+                  </p>
                 </div>
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                  <button onClick={e => startEdit(e, session.id, session.title)} className="p-0.5 rounded hover:text-stone-600 text-stone-300 transition-colors" title="Rename">
-                    <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>
+                  {/* Rename button */}
+                  <button
+                    onClick={(e) => startEdit(e, session.id, session.title)}
+                    className="p-0.5 rounded hover:text-stone-600 text-stone-300 transition-colors"
+                    title="Rename"
+                  >
+                    <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+                    </svg>
                   </button>
-                  <button onClick={e => { e.stopPropagation(); onDelete(session.id); }} className="p-0.5 rounded hover:text-red-400 text-stone-300 transition-colors" title="Delete">
-                    <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
+                    className="p-0.5 rounded hover:text-red-400 text-stone-300 transition-colors"
+                    title="Delete"
+                  >
+                    <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -227,25 +340,42 @@ function HistoryPanel({ sessions, activeId, onSelect, onDelete, onClearAll, onNe
           </div>
         ))}
       </div>
+
       <div className="border-t border-stone-100 p-3 flex items-center gap-2">
-        <button onClick={onNew} disabled={!ready} className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-medium text-stone-600 hover:text-stone-900 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-md py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+        <button
+          onClick={onNew}
+          disabled={!ready}
+          className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-medium text-stone-600 hover:text-stone-900 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-md py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
           New chat
         </button>
         {confirmClear ? (
           <div className="flex gap-1">
-            <button onClick={() => { onClearAll(); setConfirmClear(false); }} className="text-[11px] px-2 py-1.5 rounded-md bg-red-50 hover:bg-red-100 text-red-500 border border-red-200 transition-colors">Clear all</button>
-            <button onClick={() => setConfirmClear(false)} className="text-[11px] px-2 py-1.5 rounded-md hover:bg-stone-100 text-stone-400 transition-colors">Cancel</button>
+            <button onClick={() => { onClearAll(); setConfirmClear(false); }}
+              className="text-[11px] px-2 py-1.5 rounded-md bg-red-50 hover:bg-red-100 text-red-500 border border-red-200 transition-colors">
+              Clear all
+            </button>
+            <button onClick={() => setConfirmClear(false)}
+              className="text-[11px] px-2 py-1.5 rounded-md hover:bg-stone-100 text-stone-400 transition-colors">
+              Cancel
+            </button>
           </div>
         ) : (
-          <button onClick={() => setConfirmClear(true)} className="text-[11px] text-stone-300 hover:text-red-400 px-2 py-1.5 rounded-md hover:bg-stone-50 transition-colors">Clear all</button>
+          <button onClick={() => setConfirmClear(true)}
+            className="text-[11px] text-stone-300 hover:text-red-400 px-2 py-1.5 rounded-md hover:bg-stone-50 transition-colors"
+            title="Clear all history">
+            Clear all
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────
 
 export default function MatrixAnalyser() {
   const [matrix, setMatrix] = useState<ParsedMatrix | null>(null);
@@ -258,69 +388,87 @@ export default function MatrixAnalyser() {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<"questions" | "history">("questions");
+  const [matrixPanelOpen, setMatrixPanelOpen] = useState(false);
   const [chatTitle, setChatTitle] = useState<string>("New chat");
-
+  const [matrixPanelHeight, setMatrixPanelHeight] = useState(380);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastMessageCountRef = useRef(0);
   const userScrolledUpRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const { sessions, activeId, newSession, updateMessages, renameSession, setSessionTitle, selectSession, deleteSession, clearAll } = useChatHistory();
+  const {
+    sessions, activeId, newSession, updateMessages, renameSession, setSessionTitle,
+    selectSession, deleteSession, clearAll,
+  } = useChatHistory();
 
-  // Auto-load matrix
+  // ── Auto-load default matrix ─────────────────────────────────────────────
   useEffect(() => {
-    async function load() {
+    async function loadDefault() {
       try {
         const parsed = await parseMatrixUrl(DEFAULT_MATRIX_URL);
         setMatrix(parsed);
       } catch (err) {
-        console.warn("Could not load matrix:", err);
+        console.warn("Could not auto-load default matrix:", err);
       } finally {
         setIsInitialising(false);
       }
     }
-    load();
+    loadDefault();
   }, []);
 
-  // Sync messages from active session (history load only)
+  // ── Sync messages ↔ active session ──────────────────────────────────────
   useEffect(() => {
-    const session = sessions.find(s => s.id === activeId);
-    if (session && session.messages.length > 0) {
-      const clean = session.messages.map(m => m.isStreaming ? { ...m, isStreaming: false, content: m.content || "(Response interrupted — please retry)" } : m);
-      setMessages(clean);
-      setChatTitle(session.title !== "New conversation" ? session.title : "New chat");
-    } else if (!session) {
-      setMessages([]);
+    const session = sessions.find((s) => s.id === activeId);
+    if (session) {
+      setMessages(session.messages);
+      // Show session title if it has messages, otherwise default
+      setChatTitle(session.messages.length > 0 && session.title !== "New conversation"
+        ? session.title
+        : "New chat");
+    } else {
       setChatTitle("New chat");
     }
-  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeId, sessions]);
 
-  // Persist messages
+  // ── Persist messages to localStorage whenever they change ────────────────
   useEffect(() => {
-    if (activeId && messages.length > 0) updateMessages(activeId, messages);
-  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Smart scroll
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const newCount = messages.length;
-    if (newCount > lastMessageCountRef.current && !userScrolledUpRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (activeId && messages.length > 0) {
+      updateMessages(activeId, messages);
     }
-    lastMessageCountRef.current = newCount;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
+  // ── Smart scroll: only auto-scroll on new messages, not while user is reading ──
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    const handleScroll = () => { userScrolledUpRef.current = (container.scrollHeight - container.scrollTop - container.clientHeight) > 100; };
+
+    const newCount = messages.length;
+    const isNewMessage = newCount > lastMessageCountRef.current;
+    lastMessageCountRef.current = newCount;
+
+    if (isNewMessage) {
+      // New message added — scroll to bottom only if user hasn't scrolled up
+      if (!userScrolledUpRef.current) {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
+    }
+  }, [messages]);
+
+  // ── Track whether user has manually scrolled up ───────────────────────────
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      userScrolledUpRef.current = distFromBottom > 100;
+    };
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Auto-resize textarea
+  // ── Auto-resize textarea ─────────────────────────────────────────────────
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -328,72 +476,135 @@ export default function MatrixAnalyser() {
     ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
   }, [question]);
 
+  // ── File upload ──────────────────────────────────────────────────────────
   const handleFile = useCallback(async (file: File) => {
-    setIsParsingFile(true); setParseError(null);
-    try { const p = await parseMatrixFile(file); setMatrix(p); }
-    catch (err) { setParseError(err instanceof Error ? err.message : "Failed to parse file."); }
-    finally { setIsParsingFile(false); }
+    setIsParsingFile(true);
+    setParseError(null);
+    try {
+      const parsed = await parseMatrixFile(file);
+      setMatrix(parsed);
+    } catch (err) {
+      setParseError(err instanceof Error ? err.message : "Failed to parse file.");
+    } finally {
+      setIsParsingFile(false);
+    }
   }, []);
 
+  // ── Start a new chat ─────────────────────────────────────────────────────
   const handleNewChat = useCallback(() => {
-    newSession(); setMessages([]); setQuestion(""); setChatTitle("New chat");
+    newSession();
+    setMessages([]);
+    setQuestion("");
+    setChatTitle("New chat");
   }, [newSession]);
 
+  // ── Load a historical chat ───────────────────────────────────────────────
   const handleSelectSession = useCallback((id: string) => {
-    selectSession(id); setSidebarTab("questions");
-  }, [selectSession]); // eslint-disable-line react-hooks/exhaustive-deps
+    selectSession(id);
+    setSidebarTab("questions");
+  }, [selectSession, sessions]);
 
+  // ── Filter context prefix ────────────────────────────────────────────────
   const buildFilteredQuestion = useCallback((q: string) => {
     if (activeFilters.length === 0) return q;
-    return `[Context: focus specifically on ${activeFilters.join(", ")} comparators] ${q}`;
+    const labels = activeFilters.join(", ");
+    return `[Context: focus specifically on ${labels} comparators] ${q}`;
   }, [activeFilters]);
 
+  // ── Submit question ──────────────────────────────────────────────────────
   const submitQuestion = useCallback(async (q: string) => {
-    if (!q.trim() || isLoading || !matrix) return;
+    if (!q.trim() || isLoading || !ready) return;
 
+    // If no active session, create one now
     const sessionId = activeId ?? newSession();
-    const finalQuestion = buildFilteredQuestion(q.trim());
 
-    const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: q.trim(), timestamp: new Date().toISOString() };
-    const placeholderMsg: Message = { id: crypto.randomUUID(), role: "assistant", content: "", timestamp: new Date().toISOString(), isStreaming: true };
+    const finalQuestion = buildFilteredQuestion(q.trim());
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: q.trim(),
+      timestamp: new Date().toISOString(),
+    };
+    const placeholderMsg: Message = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: "",
+      timestamp: new Date().toISOString(),
+      isStreaming: true,
+    };
 
     const nextMessages = [...messages, userMsg, placeholderMsg];
-    updateMessages(sessionId, nextMessages);
     setMessages(nextMessages);
     setQuestion("");
     setIsLoading(true);
-    userScrolledUpRef.current = false;
+    userScrolledUpRef.current = false; // reset so new answer scrolls into view
 
     try {
-      const history = messages.map(m => ({ role: m.role, content: m.content }));
-      const matrixJson = JSON.stringify(matrix.records);
-
+      const history = messages.map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: finalQuestion, matrixJson, history }),
+        body: JSON.stringify({ question: finalQuestion, history }),
       });
 
-      const data = await res.json();
-      const answer = data.error ? `Error: ${data.error}` : data.answer || "No response.";
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Request failed." }));
+        throw new Error(errData.error || "Request failed.");
+      }
 
-      setMessages(prev => {
-        const updated = prev.map(m => m.isStreaming ? { ...m, content: answer, isStreaming: false } : m);
+      // Stream the response text chunk by chunk
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullAnswer = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          fullAnswer += chunk;
+          // Update the streaming message with accumulated text
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.isStreaming ? { ...m, content: fullAnswer } : m
+            )
+          );
+        }
+      }
+
+      setMessages((prev) => {
+        const updated = prev.map((m) =>
+          m.isStreaming
+            ? { ...m, content: fullAnswer || "No response.", isStreaming: false }
+            : m
+        );
         updateMessages(sessionId, updated);
         return updated;
       });
 
-      // Generate title after first question
+      // Generate a short AI title after the first question in a session
       if (messages.length === 0) {
-        fetch("/api/title", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q.trim() }) })
-          .then(r => r.json())
-          .then(({ title }) => { if (title && title !== "New conversation") { setSessionTitle(sessionId, title); setChatTitle(title); } })
+        fetch("/api/title", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: q.trim() }),
+        })
+          .then((r) => r.json())
+          .then(({ title }) => {
+            if (title && title !== "New conversation") {
+              setSessionTitle(sessionId, title);
+              setChatTitle(title);
+            }
+          })
           .catch(() => {});
       }
-    } catch (err) {
-      const msg = err instanceof Error ? `Error: ${err.message}` : "Request failed. Please check your connection and try again.";
-      setMessages(prev => {
-        const updated = prev.map(m => m.isStreaming ? { ...m, content: msg, isStreaming: false } : m);
+    } catch {
+      setMessages((prev) => {
+        const updated = prev.map((m) =>
+          m.isStreaming
+            ? { ...m, content: "Request failed. Please check your connection and try again.", isStreaming: false }
+            : m
+        );
         updateMessages(sessionId, updated);
         return updated;
       });
@@ -403,18 +614,21 @@ export default function MatrixAnalyser() {
   }, [isLoading, matrix, messages, activeId, newSession, buildFilteredQuestion, updateMessages, setSessionTitle]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitQuestion(question); }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submitQuestion(question);
+    }
   };
 
-  const ready = !isInitialising && matrix != null;
   const isEmpty = messages.length === 0;
+  const ready = !isInitialising && matrix != null;
 
   return (
     <div className="flex h-screen bg-stone-50 overflow-hidden">
-
-      {/* Sidebar */}
+      {/* ── Sidebar ───────────────────────────────────────────────────────── */}
       <aside className={`flex-shrink-0 flex flex-col border-r border-stone-200 bg-white transition-all duration-200 ${sidebarOpen ? "w-72" : "w-0 overflow-hidden"}`}>
 
+        {/* Header */}
         <div className="p-5 border-b border-stone-100">
           <div className="flex items-start gap-2.5 mb-3">
             <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
@@ -428,53 +642,91 @@ export default function MatrixAnalyser() {
           <StatusBadge matrix={matrix} loading={isInitialising} />
         </div>
 
+        {/* Replace data */}
         <ReplaceDataPanel onFile={handleFile} isLoading={isParsingFile} parseError={parseError} matrix={matrix} />
 
-        {/* Tabs */}
+        {/* Tab switcher */}
         <div className="flex border-b border-stone-100">
-          {(["questions", "history"] as const).map(tab => (
-            <button key={tab} onClick={() => setSidebarTab(tab)}
-              className={`flex-1 py-2.5 text-[11px] font-medium transition-colors ${sidebarTab === tab ? "text-stone-900 border-b-2 border-stone-900" : "text-stone-400 hover:text-stone-600"}`}>
+          {(["questions", "history"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setSidebarTab(tab)}
+              className={`flex-1 py-2.5 text-[11px] font-medium transition-colors ${
+                sidebarTab === tab
+                  ? "text-stone-900 border-b-2 border-stone-900"
+                  : "text-stone-400 hover:text-stone-600"
+              }`}
+            >
               {tab === "questions" ? "Questions" : "History"}
               {tab === "history" && sessions.length > 0 && (
-                <span className="ml-1.5 bg-stone-100 text-stone-500 text-[9px] font-semibold px-1.5 py-0.5 rounded-full">{sessions.length}</span>
+                <span className="ml-1.5 bg-stone-100 text-stone-500 text-[9px] font-semibold px-1.5 py-0.5 rounded-full">
+                  {sessions.length}
+                </span>
               )}
             </button>
           ))}
         </div>
 
+        {/* Tab content */}
         {sidebarTab === "questions" ? (
           <>
+            {/* Focus context filters — multi-select */}
             <div className="p-4 border-b border-stone-100">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">Focus Context</p>
-                {activeFilters.length > 0 && <button onClick={() => setActiveFilters([])} className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors">Clear</button>}
+                {activeFilters.length > 0 && (
+                  <button
+                    onClick={() => setActiveFilters([])}
+                    className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {FILTERS.map(f => {
+                {FILTERS.filter((f) => f.value !== "").map((f) => {
                   const active = activeFilters.includes(f.value);
                   return (
-                    <button key={f.value}
-                      onClick={() => setActiveFilters(prev => active ? prev.filter(v => v !== f.value) : [...prev, f.value])}
-                      className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${active ? "bg-stone-900 text-white border-stone-900" : "bg-white text-stone-500 border-stone-200 hover:border-stone-400 hover:text-stone-700"}`}>
+                    <button
+                      key={f.value}
+                      onClick={() =>
+                        setActiveFilters((prev) =>
+                          active ? prev.filter((v) => v !== f.value) : [...prev, f.value]
+                        )
+                      }
+                      className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                        active
+                          ? "bg-stone-900 text-white border-stone-900"
+                          : "bg-white text-stone-500 border-stone-200 hover:border-stone-400 hover:text-stone-700"
+                      }`}
+                    >
                       {f.label}
                     </button>
                   );
                 })}
               </div>
-              {activeFilters.length > 0 && <p className="text-[10px] text-stone-400 mt-1.5">Scoped to: {activeFilters.map(v => FILTERS.find(f => f.value === v)?.label ?? v).join(", ")}</p>}
+              {activeFilters.length > 0 && (
+                <p className="text-[10px] text-stone-400 mt-1.5">
+                  Scoped to: {activeFilters.map((v) => FILTERS.find((f) => f.value === v)?.label ?? v).join(", ")}
+                </p>
+              )}
             </div>
 
+            {/* Suggested questions */}
             <div className="flex-1 overflow-y-auto p-4">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-stone-400 mb-3">Example Questions</p>
               <div className="space-y-4">
-                {SUGGESTED_QUESTIONS.map(group => (
+                {SUGGESTED_QUESTIONS.map((group) => (
                   <div key={group.category}>
                     <p className="text-[10px] font-medium text-stone-400 mb-1.5">{group.category}</p>
                     <div className="space-y-1">
-                      {group.questions.map(q => (
-                        <button key={q} onClick={() => submitQuestion(q)} disabled={!ready || isLoading}
-                          className="w-full text-left text-[11.5px] text-stone-500 hover:text-stone-800 hover:bg-stone-50 px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed leading-snug">
+                      {group.questions.map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => submitQuestion(q)}
+                          disabled={!ready || isLoading}
+                          className="w-full text-left text-[11.5px] text-stone-500 hover:text-stone-800 hover:bg-stone-50 px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed leading-snug"
+                        >
                           {q}
                         </button>
                       ))}
@@ -484,6 +736,7 @@ export default function MatrixAnalyser() {
               </div>
             </div>
 
+            {/* How to use */}
             <div className="p-4 border-t border-stone-100">
               <details className="text-xs text-stone-400">
                 <summary className="cursor-pointer hover:text-stone-600 text-[11px] font-medium">How to use</summary>
@@ -491,73 +744,127 @@ export default function MatrixAnalyser() {
                   <p>The matrix is preloaded. Ask questions immediately in the chat panel.</p>
                   <p>Use Focus Context to scope questions to a typology or region.</p>
                   <p>Answers are labelled [Fact], [Derived], or [Interpretation].</p>
-                  <p>All conversations are saved automatically in the History tab.</p>
+                  <p>All conversations are saved automatically and accessible in the History tab.</p>
                 </div>
               </details>
             </div>
           </>
         ) : (
-          <HistoryPanel sessions={sessions} activeId={activeId} onSelect={handleSelectSession}
-            onDelete={deleteSession} onClearAll={clearAll} onNew={handleNewChat} onRename={renameSession} ready={ready} />
+          <HistoryPanel
+            sessions={sessions}
+            activeId={activeId}
+            onSelect={handleSelectSession}
+            onDelete={deleteSession}
+            onClearAll={clearAll}
+            onNew={handleNewChat}
+            onRename={renameSession}
+            ready={ready}
+          />
         )}
       </aside>
 
-      {/* Main panel */}
+      {/* ── Main panel ────────────────────────────────────────────────────── */}
       <main className="flex-1 flex flex-col min-w-0">
+        {/* Top bar */}
         <header className="flex items-center justify-between px-5 py-3 border-b border-stone-200 bg-white">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-md hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-1.5 rounded-md hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              </svg>
             </button>
             <div>
               <h2 className="text-sm font-semibold text-stone-800">{chatTitle}</h2>
               {activeFilters.length > 0 && <p className="text-[10px] text-stone-400">Context: {activeFilters.length === 1 ? FILTERS.find(f => f.value === activeFilters[0])?.label : `${activeFilters.length} filters`}</p>}
             </div>
           </div>
+
           <div className="flex items-center gap-2">
             {!sidebarOpen && <StatusBadge matrix={matrix} loading={isInitialising} />}
-            <a href="/Tulah_Comparator_Matrix.xlsx" download="Tulah_Comparator_Matrix.xlsx"
-              className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-stone-100 border border-stone-200 hover:border-stone-300 transition-colors">
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
-                <path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z" fill="#217346"/>
-                <path d="M14 2V8H20L14 2Z" fill="#185C37"/>
-                <path d="M8 12.5L10.5 17H13.5L11 12.5L13.5 8H10.5L8 12.5Z" fill="white"/>
-                <path d="M13 8H15.5L13.5 12.5L15.5 17H13L11 12.5L13 8Z" fill="white"/>
-              </svg>
-              Download matrix
+            {/* Open matrix in Google Sheets */}
+            <a
+              href={SHEETS_DIRECT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-stone-100 border border-stone-200 hover:border-stone-300 transition-colors"
+              title="Open matrix in Google Sheets"
+            >
+              {/* Google Sheets logo */}
+              <img src="/sheets-icon.png" className="w-3.5 h-3.5" alt="Google Sheets" />
+              Open matrix
             </a>
-            <button onClick={handleNewChat} disabled={!ready}
-              className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-stone-100 border border-stone-200 hover:border-stone-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            <button
+              onClick={handleNewChat}
+              disabled={!ready}
+              className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-stone-100 border border-stone-200 hover:border-stone-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
               New chat
             </button>
           </div>
         </header>
 
+        {/* Matrix panel */}
+        <MatrixPanel
+          embedUrl={SHEETS_EMBED_URL}
+          directUrl={SHEETS_DIRECT_URL}
+          isOpen={matrixPanelOpen}
+          onToggle={() => setMatrixPanelOpen(false)}
+          height={matrixPanelHeight}
+          onHeightChange={setMatrixPanelHeight}
+        />
+
+        {/* Messages */}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-6 py-6">
           {isInitialising ? (
             <div className="h-full flex items-center justify-center">
               <div className="flex flex-col items-center gap-3">
-                <div className="flex gap-1">{[0,1,2].map(i => <span key={i} className="w-2 h-2 rounded-full bg-stone-300 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}</div>
+                <div className="flex gap-1">
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} className="w-2 h-2 rounded-full bg-stone-300 animate-bounce"
+                      style={{ animationDelay: `${i * 0.15}s` }} />
+                  ))}
+                </div>
                 <p className="text-xs text-stone-400">Loading matrix…</p>
               </div>
             </div>
           ) : !matrix ? (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto gap-4">
-              <h3 className="text-sm font-semibold text-stone-700">Matrix could not be loaded</h3>
-              <p className="text-xs text-stone-400">Use "Replace Matrix Data" in the sidebar to upload the XLSX manually.</p>
+              <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-stone-700 mb-1">Matrix could not be loaded</h3>
+                <p className="text-xs text-stone-400 leading-relaxed">
+                  Use &quot;Replace Matrix Data&quot; in the sidebar to upload the XLSX manually.
+                </p>
+              </div>
             </div>
           ) : isEmpty ? (
             <div className="h-full flex flex-col items-center justify-center gap-4 text-center max-w-lg mx-auto">
               <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
-                <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-stone-700 mb-1">{matrix.rowCount - 2} comparators ready</h3>
                 <p className="text-xs text-stone-400">Ask a question below, or select one from the sidebar.</p>
               </div>
               <div className="grid grid-cols-2 gap-2 w-full max-w-md mt-2">
-                {["How do motherships differ from embeddeds on clinical depth?", "What patterns emerge across Dubai comparators?", "Which operators have the strongest programme architecture?", "What does the matrix suggest about sanctuary-led expansion?"].map(q => (
+                {[
+                  "How do motherships differ from embeddeds on clinical depth?",
+                  "What patterns emerge across Dubai comparators?",
+                  "Which operators have the strongest programme architecture?",
+                  "What does the matrix suggest about sanctuary-led expansion?",
+                ].map((q) => (
                   <button key={q} onClick={() => submitQuestion(q)} disabled={isLoading}
                     className="text-left text-[11.5px] text-stone-500 hover:text-stone-800 bg-white hover:bg-stone-50 border border-stone-200 hover:border-stone-300 px-3 py-2.5 rounded-lg transition-colors leading-snug disabled:opacity-40">
                     {q}
@@ -567,21 +874,33 @@ export default function MatrixAnalyser() {
             </div>
           ) : (
             <div className="max-w-3xl mx-auto space-y-6">
-              {messages.map(m => <MessageBubble key={m.id} message={m} />)}
+              {messages.map((m) => <MessageBubble key={m.id} message={m} />)}
               <div ref={messagesEndRef} />
             </div>
           )}
         </div>
 
+        {/* Input */}
         <div className="border-t border-stone-200 bg-white px-5 py-4">
           <div className="max-w-3xl mx-auto">
-            <div className={`flex gap-3 items-end bg-stone-50 border rounded-xl px-4 py-3 transition-colors ${!ready ? "opacity-50 pointer-events-none border-stone-200" : "border-stone-200 focus-within:border-stone-400"}`}>
-              <textarea ref={textareaRef} value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={handleKeyDown}
+            <div className={`flex gap-3 items-end bg-stone-50 border rounded-xl px-4 py-3 transition-colors ${
+              !ready ? "opacity-50 pointer-events-none border-stone-200" : "border-stone-200 focus-within:border-stone-400"
+            }`}>
+              <textarea
+                ref={textareaRef}
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={handleKeyDown}
                 placeholder={isInitialising ? "Loading matrix…" : "Ask a question about the matrix…"}
-                rows={1} disabled={!ready || isLoading}
-                className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-300 outline-none resize-none leading-relaxed" />
-              <button onClick={() => submitQuestion(question)} disabled={!ready || isLoading || !question.trim()}
-                className="flex-shrink-0 w-8 h-8 rounded-lg bg-stone-900 text-white flex items-center justify-center hover:bg-stone-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                rows={1}
+                disabled={!ready || isLoading}
+                className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-300 outline-none resize-none leading-relaxed"
+              />
+              <button
+                onClick={() => submitQuestion(question)}
+                disabled={!ready || isLoading || !question.trim()}
+                className="flex-shrink-0 w-8 h-8 rounded-lg bg-stone-900 text-white flex items-center justify-center hover:bg-stone-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
                 {isLoading ? (
                   <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
