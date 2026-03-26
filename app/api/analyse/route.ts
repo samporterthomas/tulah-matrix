@@ -44,9 +44,9 @@ export async function POST(req: NextRequest) {
       max_tokens: 1500,
       system: [
         {
-          type: "text",
+          type: "text" as const,
           text: systemPrompt,
-          cache_control: { type: "ephemeral" },
+          cache_control: { type: "ephemeral" as const },
         },
       ],
       messages,
