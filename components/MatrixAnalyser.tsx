@@ -558,7 +558,7 @@ export default function MatrixAnalyser() {
       const res = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: finalQuestion, history }),
+        body: JSON.stringify({ question: finalQuestion, matrixJson: matrix ? JSON.stringify(matrix.records) : "[]", history }),
       });
 
       if (!res.ok) {
