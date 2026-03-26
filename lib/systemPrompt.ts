@@ -1,5 +1,3 @@
-import path from "path";
-
 /**
  * Builds the system prompt using pre-loaded matrix JSON string.
  * The matrix is loaded server-side from public/matrix-data.json.
