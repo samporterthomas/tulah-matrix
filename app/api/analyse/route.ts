@@ -1,22 +1,11 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "@/lib/systemPrompt";
-import path from "path";
-import fs from "fs";
+import { getMatrixJson } from "@/lib/matrixData";
 
 export const maxDuration = 60;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-// Load and cache matrix data at module level
-let cachedMatrix: string | null = null;
-function getMatrix(): string {
-  if (!cachedMatrix) {
-    const p = path.join(process.cwd(), "public", "matrix-data.json");
-    cachedMatrix = fs.readFileSync(p, "utf-8");
-  }
-  return cachedMatrix;
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,7 +14,7 @@ export async function POST(req: NextRequest) {
       return new Response(JSON.stringify({ error: "Question is required." }), { status: 400 });
     }
 
-    const matrixJson = getMatrix();
+    const matrixJson = getMatrixJson();
     const systemPrompt = buildSystemPrompt(matrixJson);
     const recentHistory = (history || []).slice(-6);
 
@@ -37,7 +26,6 @@ export async function POST(req: NextRequest) {
       { role: "user", content: question },
     ];
 
-    // Use streaming to avoid Vercel timeout on large prompts
     const stream = client.messages.stream({
       model: "claude-sonnet-4-6",
       max_tokens: 1500,
@@ -54,9 +42,7 @@ export async function POST(req: NextRequest) {
               chunk.type === "content_block_delta" &&
               chunk.delta.type === "text_delta"
             ) {
-              controller.enqueue(
-                encoder.encode(chunk.delta.text)
-              );
+              controller.enqueue(encoder.encode(chunk.delta.text));
             }
           }
           controller.close();
@@ -70,7 +56,6 @@ export async function POST(req: NextRequest) {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Transfer-Encoding": "chunked",
-        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (err: unknown) {
