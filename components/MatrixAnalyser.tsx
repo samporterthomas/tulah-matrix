@@ -379,7 +379,6 @@ function HistoryPanel({
 
 export default function MatrixAnalyser() {
   const [matrix, setMatrix] = useState<ParsedMatrix | null>(null);
-  const [optimisedMatrixJson, setOptimisedMatrixJson] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -406,49 +405,31 @@ export default function MatrixAnalyser() {
   // ── Auto-load default matrix ─────────────────────────────────────────────
   useEffect(() => {
     async function loadDefault() {
-      // Load display matrix (for UI/comparator count)
       try {
         const parsed = await parseMatrixUrl(DEFAULT_MATRIX_URL);
         setMatrix(parsed);
       } catch (err) {
-        console.warn("Could not auto-load display matrix:", err);
+        console.warn("Could not auto-load default matrix:", err);
+      } finally {
+        setIsInitialising(false);
       }
-      // Load pre-optimised matrix JSON separately (never blocks ready state)
-      try {
-        const res = await fetch("/matrix-data.json");
-        const json = await res.text();
-        setOptimisedMatrixJson(json);
-      } catch (err) {
-        console.warn("Could not load optimised matrix JSON:", err);
-      }
-      // Always unblock the UI regardless of what failed
-      setIsInitialising(false);
     }
     loadDefault();
   }, []);
 
   // ── Sync messages ↔ active session ──────────────────────────────────────
-  // IMPORTANT: Only load from session when it has saved messages (loading from history).
-  // Do NOT overwrite messages for brand-new empty sessions — that would wipe
-  // optimistically-added messages set just before the API call.
   useEffect(() => {
     const session = sessions.find((s) => s.id === activeId);
-    if (session && session.messages.length > 0) {
-      // Loading an existing session from history — clean up any stuck streaming state
-      const cleanMessages = session.messages.map((m) =>
-        m.isStreaming
-          ? { ...m, isStreaming: false, content: m.content || "(Response interrupted — please retry)" }
-          : m
-      );
-      setMessages(cleanMessages);
-      setChatTitle(session.title !== "New conversation" ? session.title : "New chat");
-    } else if (!session) {
-      setMessages([]);
+    if (session) {
+      setMessages(session.messages);
+      // Show session title if it has messages, otherwise default
+      setChatTitle(session.messages.length > 0 && session.title !== "New conversation"
+        ? session.title
+        : "New chat");
+    } else {
       setChatTitle("New chat");
     }
-    // If session exists but is empty (just created), do nothing —
-    // messages state is managed directly by submitQuestion
-  }, [activeId]); // Only re-run when the active session ID changes
+  }, [activeId, sessions]);
 
   // ── Persist messages to localStorage whenever they change ────────────────
   useEffect(() => {
@@ -532,12 +513,9 @@ export default function MatrixAnalyser() {
 
   // ── Submit question ──────────────────────────────────────────────────────
   const submitQuestion = useCallback(async (q: string) => {
-    if (!q.trim() || isLoading || !ready) return;
+    if (!q.trim() || isLoading || !matrix) return;
 
-    // If no active session, create one now.
-    // We call newSession() first, then immediately set messages so the
-    // sync effect (which only fires on activeId change) sees a non-empty session
-    // and skips the overwrite.
+    // If no active session, create one now
     const sessionId = activeId ?? newSession();
 
     const finalQuestion = buildFilteredQuestion(q.trim());
@@ -556,33 +534,24 @@ export default function MatrixAnalyser() {
     };
 
     const nextMessages = [...messages, userMsg, placeholderMsg];
-    // Persist optimistic messages immediately so sync effect sees non-empty session
-    updateMessages(sessionId, nextMessages);
     setMessages(nextMessages);
     setQuestion("");
     setIsLoading(true);
-    userScrolledUpRef.current = false;
+    userScrolledUpRef.current = false; // reset so new answer scrolls into view
 
     try {
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: finalQuestion, matrixJson: optimisedMatrixJson || (matrix ? JSON.stringify(matrix.records) : "[]"), history }),
+        body: JSON.stringify({ question: finalQuestion, matrixData: matrix, history }),
       });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({ error: "Request failed." }));
-        throw new Error(errData.error || "Request failed.");
-      }
-
       const data = await res.json();
-      const fullAnswer = data.error ? `Error: ${data.error}` : data.answer || "No response.";
 
       setMessages((prev) => {
         const updated = prev.map((m) =>
           m.isStreaming
-            ? { ...m, content: fullAnswer, isStreaming: false }
+            ? { ...m, content: data.error ? `Error: ${data.error}` : data.answer || "No response.", isStreaming: false }
             : m
         );
         updateMessages(sessionId, updated);
@@ -605,12 +574,11 @@ export default function MatrixAnalyser() {
           })
           .catch(() => {});
       }
-    } catch (err) {
-      const msg = err instanceof Error ? `Error: ${err.message}` : "Request failed. Please check your connection and try again.";
+    } catch {
       setMessages((prev) => {
         const updated = prev.map((m) =>
           m.isStreaming
-            ? { ...m, content: msg, isStreaming: false }
+            ? { ...m, content: "Request failed. Please check your connection and try again.", isStreaming: false }
             : m
         );
         updateMessages(sessionId, updated);
@@ -792,21 +760,17 @@ export default function MatrixAnalyser() {
 
           <div className="flex items-center gap-2">
             {!sidebarOpen && <StatusBadge matrix={matrix} loading={isInitialising} />}
-            {/* Download matrix as Excel */}
+            {/* Open matrix in Google Sheets */}
             <a
-              href="/Tulah_Comparator_Matrix.xlsx"
-              download="Tulah_Comparator_Matrix.xlsx"
+              href={SHEETS_DIRECT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-stone-100 border border-stone-200 hover:border-stone-300 transition-colors"
-              title="Download matrix as Excel"
+              title="Open matrix in Google Sheets"
             >
-              {/* Excel icon */}
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z" fill="#217346"/>
-                <path d="M14 2V8H20L14 2Z" fill="#185C37"/>
-                <path d="M8 12.5L10.5 17H13.5L11 12.5L13.5 8H10.5L8 12.5Z" fill="white"/>
-                <path d="M13 8H15.5L13.5 12.5L15.5 17H13L11 12.5L13 8Z" fill="white"/>
-              </svg>
-              Download matrix
+              {/* Google Sheets logo */}
+              <img src="/sheets-icon.png" className="w-3.5 h-3.5" alt="Google Sheets" />
+              Open matrix
             </a>
             <button
               onClick={handleNewChat}
