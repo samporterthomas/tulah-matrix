@@ -566,40 +566,13 @@ export default function MatrixAnalyser() {
         throw new Error(errData.error || "Request failed.");
       }
 
-      // Stream the response, batching UI updates to avoid flicker
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let fullAnswer = "";
-      let pendingUpdate = "";
-      let rafId: ReturnType<typeof setTimeout> | null = null;
+      const data = await res.json();
+      const fullAnswer = data.error ? `Error: ${data.error}` : data.answer || "No response.";
 
-      const flush = () => {
-        const snapshot = fullAnswer;
-        setMessages((prev) =>
-          prev.map((m) => (m.isStreaming ? { ...m, content: snapshot } : m))
-        );
-        rafId = null;
-      };
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          pendingUpdate = decoder.decode(value, { stream: true });
-          fullAnswer += pendingUpdate;
-          // Throttle: only update UI every ~100ms
-          if (!rafId) {
-            rafId = setTimeout(flush, 100);
-          }
-        }
-        if (rafId) { clearTimeout(rafId); }
-      }
-
-      // Final update — mark streaming complete
       setMessages((prev) => {
         const updated = prev.map((m) =>
           m.isStreaming
-            ? { ...m, content: fullAnswer || "No response.", isStreaming: false }
+            ? { ...m, content: fullAnswer, isStreaming: false }
             : m
         );
         updateMessages(sessionId, updated);
