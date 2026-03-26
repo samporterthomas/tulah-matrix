@@ -38,10 +38,17 @@ export async function POST(req: NextRequest) {
     ];
 
     // Use streaming to avoid Vercel timeout on large prompts
+    // cache_control enables prompt caching — cached tokens don't count toward rate limits
     const stream = client.messages.stream({
       model: "claude-sonnet-4-6",
       max_tokens: 1500,
-      system: systemPrompt,
+      system: [
+        {
+          type: "text",
+          text: systemPrompt,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages,
     });
 
