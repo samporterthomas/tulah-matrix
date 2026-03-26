@@ -418,26 +418,27 @@ export default function MatrixAnalyser() {
   }, []);
 
   // ── Sync messages ↔ active session ──────────────────────────────────────
+  // IMPORTANT: Only load from session when it has saved messages (loading from history).
+  // Do NOT overwrite messages for brand-new empty sessions — that would wipe
+  // optimistically-added messages set just before the API call.
   useEffect(() => {
     const session = sessions.find((s) => s.id === activeId);
-    if (session) {
-      // Only clean up stuck streaming states on sessions that have saved content
-      // (i.e. were interrupted mid-stream on a previous page load)
-      const cleanMessages = session.messages.map((m) => {
-        if (m.isStreaming && !isLoading) {
-          // Only mark as interrupted if there's no content (truly stuck blank state)
-          return { ...m, isStreaming: false, content: m.content || "(Response interrupted — please retry)" };
-        }
-        return m;
-      });
+    if (session && session.messages.length > 0) {
+      // Loading an existing session from history — clean up any stuck streaming state
+      const cleanMessages = session.messages.map((m) =>
+        m.isStreaming
+          ? { ...m, isStreaming: false, content: m.content || "(Response interrupted — please retry)" }
+          : m
+      );
       setMessages(cleanMessages);
-      setChatTitle(session.messages.length > 0 && session.title !== "New conversation"
-        ? session.title
-        : "New chat");
-    } else {
+      setChatTitle(session.title !== "New conversation" ? session.title : "New chat");
+    } else if (!session) {
+      setMessages([]);
       setChatTitle("New chat");
     }
-  }, [activeId]); // Only run when active session changes, not on every messages update
+    // If session exists but is empty (just created), do nothing —
+    // messages state is managed directly by submitQuestion
+  }, [activeId]); // Only re-run when the active session ID changes
 
   // ── Persist messages to localStorage whenever they change ────────────────
   useEffect(() => {
@@ -523,7 +524,10 @@ export default function MatrixAnalyser() {
   const submitQuestion = useCallback(async (q: string) => {
     if (!q.trim() || isLoading || !ready) return;
 
-    // If no active session, create one now
+    // If no active session, create one now.
+    // We call newSession() first, then immediately set messages so the
+    // sync effect (which only fires on activeId change) sees a non-empty session
+    // and skips the overwrite.
     const sessionId = activeId ?? newSession();
 
     const finalQuestion = buildFilteredQuestion(q.trim());
@@ -542,10 +546,12 @@ export default function MatrixAnalyser() {
     };
 
     const nextMessages = [...messages, userMsg, placeholderMsg];
+    // Persist optimistic messages immediately so sync effect sees non-empty session
+    updateMessages(sessionId, nextMessages);
     setMessages(nextMessages);
     setQuestion("");
     setIsLoading(true);
-    userScrolledUpRef.current = false; // reset so new answer scrolls into view
+    userScrolledUpRef.current = false;
 
     try {
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
