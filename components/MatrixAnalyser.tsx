@@ -202,7 +202,7 @@ function MessageBubble({ message }: { message: Message }) {
           </div>
         ) : (
           <div className="prose-answer text-stone-700">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content.replace(/~~([^~]+)~~/g, "$1")}</ReactMarkdown>
           </div>
         )}
         <p className="text-[10px] text-stone-300 mt-1.5">Based on matrix data</p>
