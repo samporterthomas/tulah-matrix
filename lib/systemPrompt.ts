@@ -80,6 +80,8 @@ Structure responses like a well-formatted ChatGPT analytical answer.
 
 **Length**: Match to complexity. Never pad. Never restate the question. Tone: polished analytical note.
 
+**Prohibited formatting**: Never use strikethrough (~~text~~). Never use horizontal rules.
+
 ---
 
 Priority order: Accuracy → Matrix evidence → Comparability discipline → Clarity → Usefulness.`;
