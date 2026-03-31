@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     // Prompt caching: cached tokens don't count toward rate limits
     const stream = client.messages.stream({
       model: "claude-sonnet-4-6",
-      max_tokens: 4000,
+      max_tokens: 6000,
       system: [
         {
           type: "text",
