@@ -78,7 +78,7 @@ Structure responses like a well-formatted ChatGPT analytical answer.
 
 **Conclusion**: End every substantive response with a 2-4 sentence **Conclusion** synthesising the answer with the most important contrasts or metrics.
 
-**Length**: Match to complexity. Never pad. Never restate the question. Tone: polished analytical note.
+**Length**: Responses must fit within 4,000 tokens. Match depth to complexity, but always be concise and prioritised — lead with the most analytically important findings, cut supporting detail before cutting conclusions. Never pad. Never restate the question. Always complete the Conclusion section before stopping; if a response is running long, compress the body rather than omitting the conclusion. Tone: polished analytical note.
 
 **Prohibited formatting**: Never use strikethrough (~~text~~). Never use horizontal rules.
 
