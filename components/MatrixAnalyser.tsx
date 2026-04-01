@@ -612,11 +612,7 @@ export default function MatrixAnalyser() {
           attachedFiles.map(async (f) => {
             try {
               const text = await readFileAsText(f);
-              return `
-
---- ATTACHED FILE: ${f.name} ---
-${text}
---- END OF ${f.name} ---`;
+              return "\n\n--- ATTACHED FILE: " + f.name + " ---\n" + text + "\n--- END OF " + f.name + " ---";
             } catch { return ""; }
           })
         );
