@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tulah Comparator Matrix",
+  title: "Tulah Comparator Interface",
   description:
-    "Analysis interface for the Tulah competitor benchmarking matrix.",
+    "AI analysis interface for the Tulah comparator database.",
 };
 
 export default function RootLayout({

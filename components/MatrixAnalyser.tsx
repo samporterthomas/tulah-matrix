@@ -128,7 +128,7 @@ function ReplaceDataPanel({
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-stone-50 transition-colors"
       >
         <span className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">
-          Replace Matrix Data
+          Update Database
         </span>
         <svg className={`w-3 h-3 text-stone-300 transition-transform ${open ? "rotate-180" : ""}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -386,6 +386,8 @@ export default function MatrixAnalyser() {
   const [isInitialising, setIsInitialising] = useState(true);
   const [parseError, setParseError] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<"questions" | "history">("questions");
   const [matrixPanelOpen, setMatrixPanelOpen] = useState(false);
@@ -406,10 +408,21 @@ export default function MatrixAnalyser() {
   useEffect(() => {
     async function loadDefault() {
       try {
-        const parsed = await parseMatrixUrl(DEFAULT_MATRIX_URL);
-        setMatrix(parsed);
+        // Try persisted user upload first, fall back to default
+        const savedFile = await loadMatrixFile();
+        if (savedFile) {
+          const parsed = await parseMatrixFile(savedFile);
+          setMatrix(parsed);
+        } else {
+          const parsed = await parseMatrixUrl(DEFAULT_MATRIX_URL);
+          setMatrix(parsed);
+        }
       } catch (err) {
-        console.warn("Could not auto-load default matrix:", err);
+        console.warn("Could not auto-load matrix:", err);
+        try {
+          const parsed = await parseMatrixUrl(DEFAULT_MATRIX_URL);
+          setMatrix(parsed);
+        } catch { /* silent */ }
       } finally {
         setIsInitialising(false);
       }
@@ -483,6 +496,7 @@ export default function MatrixAnalyser() {
     try {
       const parsed = await parseMatrixFile(file);
       setMatrix(parsed);
+      await saveMatrixFile(file);
     } catch (err) {
       setParseError(err instanceof Error ? err.message : "Failed to parse file.");
     } finally {
@@ -512,6 +526,15 @@ export default function MatrixAnalyser() {
   }, [activeFilters]);
 
   // ── Submit question ──────────────────────────────────────────────────────
+  const readFileAsText = async (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsText(file);
+    });
+  };
+
   const submitQuestion = useCallback(async (q: string) => {
     if (!q.trim() || isLoading || !ready) return;
 
@@ -541,10 +564,29 @@ export default function MatrixAnalyser() {
 
     try {
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      // Read any attached files and append as context
+      let questionWithContext = finalQuestion;
+      if (attachedFiles.length > 0) {
+        const fileTexts = await Promise.all(
+          attachedFiles.map(async (f) => {
+            try {
+              const text = await readFileAsText(f);
+              return `
+
+--- ATTACHED FILE: ${f.name} ---
+${text}
+--- END OF ${f.name} ---`;
+            } catch { return ""; }
+          })
+        );
+        questionWithContext = finalQuestion + fileTexts.join("");
+        setAttachedFiles([]);
+      }
+
       const res = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: finalQuestion, history }),
+        body: JSON.stringify({ question: questionWithContext, history }),
       });
 
       if (!res.ok) {
@@ -635,8 +677,8 @@ export default function MatrixAnalyser() {
               <img src="/tulah-logo.png" alt="Tulah" className="w-10 h-10 object-contain" />
             </div>
             <div>
-              <h1 className="text-sm font-semibold text-stone-900 leading-tight">Tulah Comparator Matrix</h1>
-              <p className="text-[10px] text-stone-400 mt-0.5 leading-tight">AI Analysis Interface by Luxury Partners</p>
+              <h1 className="text-sm font-semibold text-stone-900 leading-tight">Tulah Comparator Database</h1>
+              <p className="text-[10px] text-stone-400 mt-0.5 leading-tight">AI Interface by Luxury Partners</p>
             </div>
           </div>
           <StatusBadge matrix={matrix} loading={isInitialising} />
@@ -784,12 +826,12 @@ export default function MatrixAnalyser() {
 
           <div className="flex items-center gap-2">
             {!sidebarOpen && <StatusBadge matrix={matrix} loading={isInitialising} />}
-            {/* Download matrix as Excel */}
+            {/* Download database as Excel */}
             <a
               href="/Tulah_Comparator_Matrix.xlsx"
               download="Tulah_Comparator_Matrix.xlsx"
               className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-stone-100 border border-stone-200 hover:border-stone-300 transition-colors"
-              title="Download matrix as Excel"
+              title="Download database as Excel"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z" fill="#217346"/>
@@ -797,7 +839,7 @@ export default function MatrixAnalyser() {
                 <path d="M8 12.5L10.5 17H13.5L11 12.5L13.5 8H10.5L8 12.5Z" fill="white"/>
                 <path d="M13 8H15.5L13.5 12.5L15.5 17H13L11 12.5L13 8Z" fill="white"/>
               </svg>
-              Download matrix
+              Download database
             </a>
             <button
               onClick={handleNewChat}
@@ -846,7 +888,7 @@ export default function MatrixAnalyser() {
               <div>
                 <h3 className="text-sm font-semibold text-stone-700 mb-1">Matrix could not be loaded</h3>
                 <p className="text-xs text-stone-400 leading-relaxed">
-                  Use &quot;Replace Matrix Data&quot; in the sidebar to upload the XLSX manually.
+                  Use &quot;Update Database&quot; in the sidebar to upload the XLSX manually.
                 </p>
               </div>
             </div>
@@ -886,7 +928,33 @@ export default function MatrixAnalyser() {
         {/* Input */}
         <div className="border-t border-stone-200 bg-white px-5 py-4">
           <div className="max-w-3xl mx-auto">
-            <div className={`flex gap-3 items-end bg-stone-50 border rounded-xl px-4 py-3 transition-colors ${
+            {/* Attached file chips */}
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {attachedFiles.map((f, i) => (
+                  <div key={i} className="flex items-center gap-1.5 bg-stone-100 border border-stone-200 rounded-lg px-2.5 py-1 text-[11px] text-stone-600">
+                    <svg className="w-3 h-3 text-stone-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                    <span className="max-w-[140px] truncate">{f.name}</span>
+                    <button onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="text-stone-300 hover:text-red-400 transition-colors">
+                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <input
+              ref={attachInputRef}
+              type="file"
+              multiple
+              accept=".txt,.pdf,.doc,.docx,.csv,.json,.md,.xlsx"
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                setAttachedFiles(prev => [...prev, ...files]);
+                e.target.value = "";
+              }}
+            />
+            <div className={`flex gap-2 items-end bg-stone-50 border rounded-xl px-4 py-3 transition-colors ${
               !ready ? "opacity-50 pointer-events-none border-stone-200" : "border-stone-200 focus-within:border-stone-400"
             }`}>
               <textarea
@@ -894,11 +962,19 @@ export default function MatrixAnalyser() {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={isInitialising ? "Loading matrix…" : "Ask a question about the matrix…"}
+                placeholder={isInitialising ? "Loading matrix…" : "Ask a question about the database…"}
                 rows={1}
                 disabled={!ready || isLoading}
                 className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-300 outline-none resize-none leading-relaxed"
               />
+              <button
+                onClick={() => attachInputRef.current?.click()}
+                disabled={!ready || isLoading}
+                title="Attach file for additional context"
+                className="flex-shrink-0 w-8 h-8 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+              </button>
               <button
                 onClick={() => submitQuestion(question)}
                 disabled={!ready || isLoading || !question.trim()}
