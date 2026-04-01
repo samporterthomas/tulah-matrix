@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { parseMatrixFile, parseMatrixUrl } from "@/lib/parseMatrix";
 import { useChatHistory } from "@/lib/useChatHistory";
+import { saveMatrixFile, loadMatrixFile } from "@/lib/matrixStorage";
 import MatrixPanel from "@/components/MatrixPanel";
 import type { ParsedMatrix, Message } from "@/lib/types";
 
