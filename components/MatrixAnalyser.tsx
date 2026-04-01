@@ -177,8 +177,20 @@ function MessageBubble({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[78%] bg-stone-900 text-stone-50 rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed">
-          {message.content}
+        <div className="max-w-[78%]">
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 justify-end mb-1.5">
+              {message.attachments.map((name, i) => (
+                <div key={i} className="flex items-center gap-1 bg-stone-700 text-stone-300 text-[10px] px-2 py-1 rounded-lg">
+                  <svg className="w-2.5 h-2.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                  <span className="truncate max-w-[160px]">{name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="bg-stone-900 text-stone-50 rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed">
+            {message.content}
+          </div>
         </div>
       </div>
     );
@@ -529,6 +541,35 @@ export default function MatrixAnalyser() {
 
   // ── Submit question ──────────────────────────────────────────────────────
   const readFileAsText = async (file: File): Promise<string> => {
+    const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
+    if (isExcel) {
+      // Dynamically import XLSX to parse Excel files into readable text
+      const XLSX = await import("xlsx");
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = new Uint8Array(e.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: "array" });
+            const lines: string[] = [];
+            workbook.SheetNames.forEach((sheetName) => {
+              const sheet = workbook.Sheets[sheetName];
+              const csv = XLSX.utils.sheet_to_csv(sheet);
+              if (csv.trim()) lines.push(`[Sheet: ${sheetName}]
+${csv}`);
+            });
+            resolve(lines.join("
+
+"));
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(file);
+      });
+    }
+    // Plain text / CSV / JSON / MD
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
@@ -544,11 +585,13 @@ export default function MatrixAnalyser() {
     const sessionId = activeId ?? newSession();
 
     const finalQuestion = buildFilteredQuestion(q.trim());
+    const attachmentNames = attachedFiles.map(f => f.name);
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: "user",
       content: q.trim(),
       timestamp: new Date().toISOString(),
+      attachments: attachmentNames.length > 0 ? attachmentNames : undefined,
     };
     const placeholderMsg: Message = {
       id: crypto.randomUUID(),
@@ -582,8 +625,8 @@ ${text}
           })
         );
         questionWithContext = finalQuestion + fileTexts.join("");
-        setAttachedFiles([]);
       }
+      setAttachedFiles([]);
 
       const res = await fetch("/api/analyse", {
         method: "POST",

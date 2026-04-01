@@ -16,6 +16,7 @@ export interface Message {
   content: string;
   timestamp: string;
   isStreaming?: boolean;
+  attachments?: string[]; // file names attached to this message
 }
 
 export interface AnalyseRequest {
