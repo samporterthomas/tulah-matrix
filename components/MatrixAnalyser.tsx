@@ -388,6 +388,7 @@ export default function MatrixAnalyser() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<"questions" | "history">("questions");
@@ -955,9 +956,19 @@ ${text}
                 e.target.value = "";
               }}
             />
-            <div className={`flex gap-2 items-end bg-stone-50 border rounded-xl px-4 py-3 transition-colors ${
-              !ready ? "opacity-50 pointer-events-none border-stone-200" : "border-stone-200 focus-within:border-stone-400"
-            }`}>
+            <div
+              className={`flex gap-2 items-end bg-stone-50 border rounded-xl px-4 py-3 transition-colors ${
+                !ready ? "opacity-50 pointer-events-none border-stone-200" : dragOver ? "border-stone-500 bg-stone-100" : "border-stone-200 focus-within:border-stone-400"
+              }`}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const files = Array.from(e.dataTransfer.files);
+                if (files.length > 0) setAttachedFiles(prev => [...prev, ...files]);
+              }}
+            >
               <textarea
                 ref={textareaRef}
                 value={question}
