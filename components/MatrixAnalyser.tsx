@@ -543,7 +543,6 @@ export default function MatrixAnalyser() {
   const readFileAsText = async (file: File): Promise<string> => {
     const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
     if (isExcel) {
-      // Dynamically import XLSX to parse Excel files into readable text
       const XLSX = await import("xlsx");
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -555,12 +554,9 @@ export default function MatrixAnalyser() {
             workbook.SheetNames.forEach((sheetName) => {
               const sheet = workbook.Sheets[sheetName];
               const csv = XLSX.utils.sheet_to_csv(sheet);
-              if (csv.trim()) lines.push(`[Sheet: ${sheetName}]
-${csv}`);
+              if (csv.trim()) lines.push("[Sheet: " + sheetName + "]\n" + csv);
             });
-            resolve(lines.join("
-
-"));
+            resolve(lines.join("\n\n"));
           } catch (err) {
             reject(err);
           }
