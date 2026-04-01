@@ -400,6 +400,7 @@ export default function MatrixAnalyser() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [pinnedFiles, setPinnedFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -581,7 +582,7 @@ export default function MatrixAnalyser() {
     const sessionId = activeId ?? newSession();
 
     const finalQuestion = buildFilteredQuestion(q.trim());
-    const attachmentNames = attachedFiles.map(f => f.name);
+    const attachmentNames = [...attachedFiles, ...pinnedFiles].map(f => f.name);
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: "user",
@@ -607,9 +608,10 @@ export default function MatrixAnalyser() {
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
       // Read any attached files and append as context
       let questionWithContext = finalQuestion;
-      if (attachedFiles.length > 0) {
+      const allFiles = [...attachedFiles, ...pinnedFiles];
+      if (allFiles.length > 0) {
         const fileTexts = await Promise.all(
-          attachedFiles.map(async (f) => {
+          allFiles.map(async (f) => {
             try {
               const text = await readFileAsText(f);
               return "\n\n--- ATTACHED FILE: " + f.name + " ---\n" + text + "\n--- END OF " + f.name + " ---";
@@ -618,7 +620,7 @@ export default function MatrixAnalyser() {
         );
         questionWithContext = finalQuestion + fileTexts.join("");
       }
-      setAttachedFiles([]);
+      setAttachedFiles([]); // Clear per-message files but keep pinned ones
 
       const res = await fetch("/api/analyse", {
         method: "POST",
@@ -965,14 +967,37 @@ export default function MatrixAnalyser() {
         {/* Input */}
         <div className="border-t border-stone-200 bg-white px-5 py-4">
           <div className="max-w-3xl mx-auto">
-            {/* Attached file chips */}
+            {/* Pinned files — sent with every message in this session */}
+            {pinnedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {pinnedFiles.map((f, i) => (
+                  <div key={i} className="flex items-center gap-1 bg-stone-800 text-stone-200 text-[11px] px-2.5 py-1 rounded-lg border border-stone-600">
+                    <svg className="w-2.5 h-2.5 text-amber-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+                    <span className="truncate max-w-[140px]">{f.name}</span>
+                    <button onClick={() => setPinnedFiles(prev => prev.filter((_, j) => j !== i))} className="text-stone-400 hover:text-red-400 transition-colors ml-1" title="Unpin">
+                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Per-message attached files — cleared after send. Pin icon keeps for whole session. */}
             {attachedFiles.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {attachedFiles.map((f, i) => (
-                  <div key={i} className="flex items-center gap-1.5 bg-stone-100 border border-stone-200 rounded-lg px-2.5 py-1 text-[11px] text-stone-600">
-                    <svg className="w-3 h-3 text-stone-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                    <span className="max-w-[140px] truncate">{f.name}</span>
-                    <button onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="text-stone-300 hover:text-red-400 transition-colors">
+                  <div key={i} className="flex items-center gap-0 bg-stone-100 border border-stone-200 rounded-lg text-[11px] text-stone-600 overflow-hidden">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1">
+                      <svg className="w-3 h-3 text-stone-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                      <span className="max-w-[120px] truncate">{f.name}</span>
+                    </div>
+                    <button
+                      onClick={() => { setPinnedFiles(prev => [...prev, f]); setAttachedFiles(prev => prev.filter((_, j) => j !== i)); }}
+                      className="px-1.5 py-1 text-stone-400 hover:text-amber-500 border-l border-stone-200 transition-colors"
+                      title="Pin — keep for whole conversation"
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+                    </button>
+                    <button onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="px-1.5 py-1 text-stone-300 hover:text-red-400 transition-colors">
                       <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                   </div>
