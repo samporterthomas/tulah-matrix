@@ -692,7 +692,7 @@ export default function MatrixAnalyser() {
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, matrix, messages, activeId, newSession, buildFilteredQuestion, updateMessages, setSessionTitle]);
+  }, [isLoading, matrix, messages, activeId, newSession, buildFilteredQuestion, updateMessages, setSessionTitle, attachedFiles, pinnedFiles]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
